@@ -302,7 +302,7 @@ public:
             .arg(Measurement::displayAmount(Measurement::Amount{rec->boilVolume_l(), Measurement::Units::liters},
                                             PersistentSettings::Sections::tab_recipe,
                                             PropertyNames::Recipe::boilVolume_l));
-      // Second row: Boil Time and Efficiency
+      // Second row: Boil Time and Pre-boil gravity
       body += QString("<tr>"
                      "<td align=\"left\" class=\"left\">%1</td>"
                      "<td class=\"value\">%2</td>")
@@ -315,8 +315,13 @@ public:
                                             PropertyNames::Recipe::boilTime_min));
       body += QString("<td align=\"right\" class=\"right\">%1</td>"
                      "<td class=\"value\">%2</td></tr>")
-            .arg(tr("Efficiency"))
-            .arg(rec->efficiency_pct(), 0, 'f', 0);
+           .arg(tr("Pre-boil Gravity"))
+           .arg(Measurement::displayAmount(Measurement::Amount{
+                                               rec->boilGrav(),
+                                               Measurement::Units::sp_grav
+                                           },
+                                           PersistentSettings::Sections::tab_recipe,
+                                           PropertyNames::Recipe::boilGrav));
 
       // Third row: OG and FG
       body += QString("<tr>"
@@ -347,7 +352,7 @@ public:
             .arg(Measurement::displayQuantity(rec->IBU(), 1))
             .arg(IbuMethods::ibuFormulaName() );
 
-      // Fifth row: Color and calories.  Set up the color string first
+      // Fifth row: Color and efficiency.  Set up the color string first
       body += QString("<tr>"
                      "<td align=\"left\" class=\"left\">%1</td>"
                      "<td class=\"value\">%2 (%3)</td>")
@@ -358,6 +363,7 @@ public:
                                             1))
             .arg(ColorMethods::colorFormulaName());
 
+      /*
       bool displayMetricVolumes =
          Measurement::getDisplayUnitSystem(Measurement::PhysicalQuantity::Volume) ==
          Measurement::UnitSystems::volume_Metric;
@@ -365,6 +371,11 @@ public:
                      "<td class=\"value\">%2</td></tr>")
             .arg(displayMetricVolumes ? tr("Estimated calories (per 33 cl)") : tr("Estimated calories (per 12 oz)"))
             .arg(Measurement::displayQuantity(displayMetricVolumes ? rec->calories33cl() : rec->calories12oz(), 0) );
+      */
+      body += QString("<td align=\"right\" class=\"right\">%1</td>"
+                     "<td class=\"value\">%2</td></tr>")
+            .arg(tr("Efficiency"))
+            .arg(rec->efficiency_pct(), 0, 'f', 0);
 
       body += "</table>";
 
@@ -1061,7 +1072,8 @@ public:
          return bnTable;
       }
 
-      for(int ii = 0; ii < size; ++ii) {
+      // for(int ii = 0; ii < size; ++ii) {
+         int ii = size - 1; // Only print the most recent previous brewday for reference.
          BrewNote* note = brewNotes[ii];
 
          bnTable += QString("<h2>%1 %2</h2>").arg(tr("Brew Date")).arg(note->brewDate_short());
@@ -1147,7 +1159,7 @@ public:
                   .arg(Measurement::displayQuantity(note->calculateActualABV_pct(), 2));
          bnTable += "</table>";
 
-      }
+      // }
 
       return bnTable;
    }

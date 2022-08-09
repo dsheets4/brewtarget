@@ -53,7 +53,7 @@ public:
     *
     * @return QString
     */
-   QString buildHtml();
+   QString buildHtml(bool contentOnly = false);
 
 private:
    /**

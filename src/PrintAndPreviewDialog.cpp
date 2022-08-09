@@ -47,7 +47,7 @@ PrintAndPreviewDialog::PrintAndPreviewDialog(MainWindow * parent) : QDialog(pare
    layout.setUnits(QPageLayout::Point);
    QMarginsF margins = layout.margins();
 
-   int margin = 20;
+   int margin = 10;
    margins.setBottom( margin );
    margins.setTop( margin );
    margins.setLeft( margin );
@@ -358,8 +358,8 @@ void PrintAndPreviewDialog::updatePreview() {
          if (chkRec) {
             pDoc = recipeFormatter->getHtmlFormat();
          }
-         if ( chkBDI && !chkRec ) {
-            pDoc += brewDayFormatter->buildHtml();
+         if ( chkBDI ) {
+            pDoc += brewDayFormatter->buildHtml(chkRec);
          }
       } else if (verticalTabWidget->currentIndex() == 1) {
          InventoryFormatter::HtmlGenerationFlags flags  = static_cast<InventoryFormatter::HtmlGenerationFlags>(

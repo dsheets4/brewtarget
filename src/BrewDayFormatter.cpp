@@ -42,7 +42,10 @@ void BrewDayFormatter::setRecipe(Recipe * recipe) {
    recObs = recipe;
 }
 
-QString BrewDayFormatter::buildHtml() {
+QString BrewDayFormatter::buildHtml(bool contentOnly) {
+   if (contentOnly) {
+      return buildInstructionHtml();
+   }
    return buildTitleHtml() + buildInstructionHtml() + buildFooterHtml();
 }
 
