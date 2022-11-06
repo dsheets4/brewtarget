@@ -39,10 +39,6 @@
 #include <QBrush>
 #include <QDesktopServices>
 #include <QDesktopWidget>
-#include <QDomDocument>
-#include <QDomElement>
-#include <QDomNode>
-#include <QDomNodeList>
 #include <QFile>
 #include <QFileDialog>
 #include <QIcon>
@@ -53,7 +49,6 @@
 #include <QList>
 #include <QMainWindow>
 #include <QMessageBox>
-#include <QNetworkReply>
 #include <QPen>
 #include <QPixmap>
 #include <QSize>
@@ -70,8 +65,8 @@
 #include "AlcoholTool.h"
 #include "Algorithms.h"
 #include "AncestorDialog.h"
+#include "Application.h"
 #include "BrewNoteWidget.h"
-#include "brewtarget.h"
 #include "BtDatePopup.h"
 #include "BtDigitWidget.h"
 #include "BtFolder.h"
@@ -97,11 +92,11 @@
 #include "MashListModel.h"
 #include "MashStepEditor.h"
 #include "MashWizard.h"
+#include "measurement/Measurement.h"
 #include "measurement/Unit.h"
 #include "MiscDialog.h"
 #include "MiscEditor.h"
 #include "MiscSortFilterProxyModel.h"
-#include "measurement/Measurement.h"
 #include "model/BrewNote.h"
 #include "model/Equipment.h"
 #include "model/Fermentable.h"
@@ -134,6 +129,7 @@
 #include "UndoableAddOrRemove.h"
 #include "UndoableAddOrRemoveList.h"
 #include "utils/BtStringConst.h"
+#include "utils/OptionalToStream.h"
 #include "WaterDialog.h"
 #include "WaterEditor.h"
 #include "WaterListModel.h"
@@ -334,7 +330,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), pimpl{std::make_u
       exit(1);
 
    // Set the window title.
-   setWindowTitle( QString("Brewtarget - %1").arg(VERSIONSTRING) );
+   setWindowTitle( QString("Brewtarget - %1").arg(CONFIG_VERSION_STRING) );
 
    // Null out the recipe
    recipeObs = nullptr;
@@ -982,54 +978,69 @@ void MainWindow::setupDrops() {
    return;
 }
 
-void MainWindow::deleteSelected()
-{
+void MainWindow::deleteSelected() {
    QModelIndexList selected;
    BtTreeView* active = qobject_cast<BtTreeView*>(tabWidget_Trees->currentWidget()->focusWidget());
 
    // This happens after startup when nothing is selected
-   if (!active)
+   if (!active) {
+      qDebug() << Q_FUNC_INFO << "Nothing selected, so nothing to delete";
       return;
-
-   QModelIndex start = active->selectionModel()->selectedRows().first();
-   active->deleteSelected(active->selectionModel()->selectedRows());
-
-   if ( ! start.isValid() ) {
-      start = active->first();
    }
 
-   if ( start.isValid() ) {
+   QModelIndex start = active->selectionModel()->selectedRows().first();
+   qDebug() << Q_FUNC_INFO << "Delete starting from row" << start.row();
+   active->deleteSelected(active->selectionModel()->selectedRows());
+
+   //
+   // Now that we deleted the selected recipe, we don't want it to appear in the main window any more, so let's select
+   // another one.
+   //
+   // Most of the time, after deleting the nth recipe, the new nth item is also a recipe.  If there isn't an nth item
+   // (eg because the recipe(s) we deleted were at the end of the list) then let's go back to the 1st item.  But then
+   // we have to make sure to skip over folders.
+   //
+   // .:TBD:. This works if you have plenty of recipes outside folders.  If all your recipes are inside folders, then
+   // we should so a proper search through the tree to find the first recipe and then expand the folder that it's in.
+   // Doesn't feel like that logic belongs here.  Would be better to create BtTreeView::firstNonFolder() or similar.
+   //
+   if (!start.isValid() || !active->type(start)) {
+      int oldRow = start.row();
+      start = active->first();
+      qDebug() << Q_FUNC_INFO << "Row" << oldRow << "no longer valid, so returning to first (" << start.row() << ")";
+   }
+
+   while (start.isValid() && active->type(start) == BtTreeItem::Type::FOLDER) {
+      qDebug() << Q_FUNC_INFO << "Skipping over folder at row" << start.row();
+      // Once all platforms are on Qt 5.11 or later, we can write:
+      // start = start.siblingAtRow(start.row() + 1);
+      start = start.sibling(start.row() + 1, start.column());
+   }
+
+   if (start.isValid()) {
+      qDebug() << Q_FUNC_INFO << "Row" << start.row() << "is" << active->type(start);
       if (active->type(start) == BtTreeItem::Type::RECIPE) {
-         setRecipe(treeView_recipe->getItem<Recipe>(start));
+         this->setRecipe(treeView_recipe->getItem<Recipe>(start));
       }
-      setTreeSelection(start);
+      this->setTreeSelection(start);
    }
 
    return;
 }
 
-void MainWindow::treeActivated(const QModelIndex &index)
-{
-   Equipment *kit;
-   Fermentable *ferm;
-   Hop* h;
-   Misc *m;
-   Yeast *y;
-   Style *s;
-   Water *w;
-
+void MainWindow::treeActivated(const QModelIndex &index) {
    QObject* calledBy = sender();
-   BtTreeView* active;
-
    // Not sure how this could happen, but better safe the sigsegv'd
-   if ( calledBy == nullptr )
+   if (!calledBy) {
       return;
+   }
 
-   active = qobject_cast<BtTreeView*>(calledBy);
-
+   BtTreeView* active = qobject_cast<BtTreeView*>(calledBy);
    // If the sender cannot be morphed into a BtTreeView object
-   if ( active == nullptr )
+   if (!active) {
+      qWarning() << Q_FUNC_INFO << "Unrecognised sender" << calledBy->metaObject()->className();
       return;
+   }
 
    auto itemType = active->type(index);
    if (!itemType) {
@@ -1040,45 +1051,57 @@ void MainWindow::treeActivated(const QModelIndex &index)
             setRecipe(treeView_recipe->getItem<Recipe>(index));
             break;
          case BtTreeItem::Type::EQUIPMENT:
-            kit = active->getItem<Equipment>(index);
-            if ( kit ) {
-               singleEquipEditor->setEquipment(kit);
-               singleEquipEditor->show();
+            {
+               Equipment * kit = active->getItem<Equipment>(index);
+               if ( kit ) {
+                  singleEquipEditor->setEquipment(kit);
+                  singleEquipEditor->show();
+               }
             }
             break;
          case BtTreeItem::Type::FERMENTABLE:
-            ferm = active->getItem<Fermentable>(index);
-            if ( ferm ) {
-               fermEditor->setFermentable(ferm);
-               fermEditor->show();
+            {
+               Fermentable * ferm = active->getItem<Fermentable>(index);
+               if (ferm) {
+                  fermEditor->setFermentable(ferm);
+                  fermEditor->show();
+               }
             }
             break;
          case BtTreeItem::Type::HOP:
-            h = active->getItem<Hop>(index);
-            if (h) {
-               hopEditor->setHop(h);
-               hopEditor->show();
+            {
+               Hop* h = active->getItem<Hop>(index);
+               if (h) {
+                  hopEditor->setHop(h);
+                  hopEditor->show();
+               }
             }
             break;
          case BtTreeItem::Type::MISC:
-            m = active->getItem<Misc>(index);
-            if (m) {
-               miscEditor->setMisc(m);
-               miscEditor->show();
+            {
+               Misc * m = active->getItem<Misc>(index);
+               if (m) {
+                  miscEditor->setMisc(m);
+                  miscEditor->show();
+               }
             }
             break;
          case BtTreeItem::Type::STYLE:
-            s = active->getItem<Style>(index);
-            if ( s ) {
-               singleStyleEditor->setStyle(s);
-               singleStyleEditor->show();
+            {
+               Style * s = active->getItem<Style>(index);
+               if ( s ) {
+                  singleStyleEditor->setStyle(s);
+                  singleStyleEditor->show();
+               }
             }
             break;
          case BtTreeItem::Type::YEAST:
-            y = active->getItem<Yeast>(index);
-            if (y) {
-               yeastEditor->setYeast(y);
-               yeastEditor->show();
+            {
+               Yeast * y = active->getItem<Yeast>(index);
+               if (y) {
+                  yeastEditor->setYeast(y);
+                  yeastEditor->show();
+               }
             }
             break;
          case BtTreeItem::Type::BREWNOTE:
@@ -1087,15 +1110,18 @@ void MainWindow::treeActivated(const QModelIndex &index)
          case BtTreeItem::Type::FOLDER:  // default behavior is fine, but no warning
             break;
          case BtTreeItem::Type::WATER:
-            w = active->getItem<Water>(index);
-            if (w) {
-               waterEditor->setWater(w);
-               waterEditor->show();
+            {
+               Water * w = active->getItem<Water>(index);
+               if (w) {
+                  waterEditor->setWater(ObjectStoreWrapper::getSharedFromRaw(w));
+                  waterEditor->show();
+               }
             }
             break;
       }
    }
    treeView_recipe->setCurrentIndex(index);
+   return;
 }
 
 void MainWindow::setBrewNoteByIndex(const QModelIndex &index)
@@ -2764,7 +2790,7 @@ void MainWindow::removeMash() {
 
 void MainWindow::closeEvent(QCloseEvent* /*event*/)
 {
-   Brewtarget::saveSystemOptions();
+   Application::saveSystemOptions();
    PersistentSettings::insert(PersistentSettings::Names::geometry, saveGeometry());
    PersistentSettings::insert(PersistentSettings::Names::windowState, saveState());
    if ( recipeObs )
@@ -2830,7 +2856,7 @@ void MainWindow::saveMash() {
 void MainWindow::openManual()
    {
    // TODO: open language-dependent manual when we have more than the English version
-   QDesktopServices::openUrl(QUrl::fromLocalFile(Brewtarget::getDataDir().filePath("manual-en.pdf")));
+   QDesktopServices::openUrl(QUrl::fromLocalFile(Application::getResourceDir().filePath("manual-en.pdf")));
 }
 
 // We build the menus at start up time.  This just needs to exec the proper
@@ -3061,54 +3087,6 @@ void MainWindow::exportSelected() {
    return;
 }
 
-void MainWindow::finishCheckingVersion()
-{
-   QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
-   if( reply == nullptr )
-      return;
-
-   QString remoteVersion(reply->readAll());
-
-   // If there is an error, just return.
-   if( reply->error() != QNetworkReply::NoError )
-      return;
-
-   // If the remote version is newer...
-   if( !remoteVersion.startsWith(VERSIONSTRING) )
-   {
-      // ...and the user wants to download the new version...
-      if( QMessageBox::information(this,
-                                   QObject::tr("New Version"),
-                                   QObject::tr("Version %1 is now available. Download it?").arg(remoteVersion),
-                                   QMessageBox::Yes | QMessageBox::No,
-                                   QMessageBox::Yes) == QMessageBox::Yes )
-      {
-         // ...take them to the website.
-         QDesktopServices::openUrl(QUrl("http://www.brewtarget.org/download.html"));
-      }
-      else // ... and the user does NOT want to download the new version...
-      {
-         // ... and they want us to stop bothering them...
-         if( QMessageBox::question(this,
-                                   QObject::tr("New Version"),
-                                   QObject::tr("Stop bothering you about new versions?"),
-                                   QMessageBox::Yes | QMessageBox::No,
-                                   QMessageBox::Yes) == QMessageBox::Yes)
-         {
-            // ... make a note to stop bothering the user about the new version.
-            Brewtarget::setCheckVersion(false);
-         }
-      }
-   }
-   else // The current version is newest so...
-   {
-      // ...make a note to bother users about future new versions.
-      // This means that when a user downloads the new version, this
-      // variable will always get reset to true.
-      Brewtarget::setCheckVersion(true);
-   }
-}
-
 void MainWindow::redisplayLabel()
 {
    // There is a lot of magic going on in the showChanges(). I can either
@@ -3160,7 +3138,7 @@ void MainWindow::convertedMsg()
 
    QMessageBox msgBox;
    msgBox.setText( tr("The database has been converted/upgraded."));
-   msgBox.setInformativeText( tr("The original XML files can be found in ") + Brewtarget::getUserDataDir().canonicalPath() + "obsolete");
+   msgBox.setInformativeText( tr("The original XML files can be found in ") + Application::getUserDataDir().canonicalPath() + "obsolete");
    msgBox.exec();
 
 }

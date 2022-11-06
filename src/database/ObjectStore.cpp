@@ -344,6 +344,7 @@ namespace {
          queryStringAsStream << ", " << orderByBindName;
       }
       queryStringAsStream << ");";
+      qDebug() << Q_FUNC_INFO << "Using query string" << queryString;
 
       //
       // Note that, when we are using bind values, we do NOT want to call the
@@ -419,9 +420,9 @@ namespace {
             sqlQuery.bindValue(orderByBindName, itemNumber);
          }
          qDebug() <<
-            Q_FUNC_INFO << itemNumber << ": " <<
-            GetJunctionTableDefinitionThisPrimaryKeyColumn(junctionTable) << " #" << primaryKey.toInt() << " <-> " <<
-            GetJunctionTableDefinitionOtherPrimaryKeyColumn(junctionTable) << " #" << curValue;
+            Q_FUNC_INFO <<
+            GetJunctionTableDefinitionThisPrimaryKeyColumn(junctionTable) << " #" << primaryKey.toInt() << ":" <<
+            GetJunctionTableDefinitionOtherPrimaryKeyColumn(junctionTable) << "N°" << itemNumber << " is #" << curValue;
 
          if (!sqlQuery.exec()) {
             qCritical() <<
@@ -846,6 +847,17 @@ ObjectStore::~ObjectStore() {
    return;
 }
 
+void ObjectStore::logDiagnostics() const {
+   for (int key : this->pimpl->allObjects.keys()) {
+      std::shared_ptr<QObject> object = this->pimpl->allObjects.value(key);
+      qDebug() <<
+         Q_FUNC_INFO << "Object @" << static_cast<void *>(object.get()) << "stored as #" << key << "has key" <<
+         this->pimpl->getPrimaryKey(*object) << "and shared pointer use count" << object.use_count();
+   }
+   return;
+}
+
+
 // Note that we have to pass Database in as a parameter because, ultimately, we're being called from Database::load()
 // which is called from Database::getInstance(), so we don't want to get in an endless loop.
 bool ObjectStore::createTables(Database & database, QSqlDatabase & connection) const {
@@ -1068,43 +1080,54 @@ void ObjectStore::loadAll(Database * database) {
       qDebug() << Q_FUNC_INFO << "Reading junction table rows from database query " << queryString;
 
       //
-      // The simplest way to process the data is first to build the raw ID-to-ID map in memory...
+      // The simplest way to process the data is first to build the ID-to-ordered-list-of-IDs map in memory, then loop
+      // through this to pass the data to the relevant objects.
       //
-      QMultiHash<int, QVariant> thisToOtherKeys;
+      int previousPrimaryKey = -1;
+      QMap< int, QVector<int> > thisToOtherKeys;
       while (sqlQuery.next()) {
-         thisToOtherKeys.insert(sqlQuery.value(*GetJunctionTableDefinitionThisPrimaryKeyColumn(junctionTable)).toInt(),
-                                sqlQuery.value(*GetJunctionTableDefinitionOtherPrimaryKeyColumn(junctionTable)));
+         int thisPrimaryKey = sqlQuery.value(*GetJunctionTableDefinitionThisPrimaryKeyColumn(junctionTable)).toInt();
+         int otherPrimaryKey = sqlQuery.value(*GetJunctionTableDefinitionOtherPrimaryKeyColumn(junctionTable)).toInt();
+         qDebug() << Q_FUNC_INFO << "Interim store of" << thisPrimaryKey << "<->" << otherPrimaryKey;
+
+         if (thisPrimaryKey != previousPrimaryKey) {
+            thisToOtherKeys.insert(thisPrimaryKey, QVector<int>{});
+            previousPrimaryKey = thisPrimaryKey;
+         }
+         Q_ASSERT(thisToOtherKeys.contains(thisPrimaryKey));
+         thisToOtherKeys[thisPrimaryKey].append(otherPrimaryKey);
       }
 
-      //
-      // ...then loop through the map to pass the data to the relevant objects
-      //
-      for (int const currentKey : thisToOtherKeys.uniqueKeys()) {
+      for (auto currentMapping = thisToOtherKeys.cbegin();
+           currentMapping != thisToOtherKeys.cend();
+           ++currentMapping) {
          //
          // It's probably a coding error somewhere if there's an associative entry for an object that doesn't exist,
          // but we can recover by ignoring the associative entry
          //
-         if (!this->contains(currentKey)) {
+         if (!this->contains(currentMapping.key())) {
             qCritical() <<
                Q_FUNC_INFO << "Ignoring record in table " << junctionTable.tableName <<
-               " for non-existent object with primary key " << currentKey;
+               " for non-existent object with primary key " << currentMapping.key();
             continue;
          }
 
-         auto currentObject = this->getById(currentKey);
+         auto currentObject = this->getById(currentMapping.key());
+
+         // We assert that we could not have created a mapping without at least one entry
+         Q_ASSERT(currentMapping.value().size() > 0);
 
          //
          // Normally we'd pass a list of all the "other" keys for each "this" object, but if we've been told to assume
          // there is at most one "other" per "this", then we'll pass just the first one we get back for each "this".
          //
-         QList<QVariant> otherKeys = thisToOtherKeys.values(currentKey);
          bool success = false;
          if (junctionTable.assumedNumEntries == ObjectStore::MAX_ONE_ENTRY) {
             qDebug() <<
-               Q_FUNC_INFO << currentObject->metaObject()->className() << " #" << currentKey << ", " <<
-               GetJunctionTableDefinitionPropertyName(junctionTable) << "=" << otherKeys.first();
+               Q_FUNC_INFO << currentObject->metaObject()->className() << " #" << currentMapping.key() << ", " <<
+               GetJunctionTableDefinitionPropertyName(junctionTable) << "=" << currentMapping.value().first();
             success = currentObject->setProperty(*GetJunctionTableDefinitionPropertyName(junctionTable),
-                                                 otherKeys.first());
+                                                 currentMapping.value().first());
          } else {
             //
             // The setProperty function always takes a QVariant, so we need to create one from the QList<QVariant> we
@@ -1113,18 +1136,18 @@ void ObjectStore::loadAll(Database * database) {
             //
             // In particular, we can't just shove a QList<QVariant> (ie otherKeys) inside a QVariant, because passing
             // this to setProperty() (or equivalent calls via the metaObject) will cause Qt to attempt (and fail) to
-            // access a setter that takes QList<QVariant>.  We need to create QVector<int> (ie what the setter expects)
-            // and then wrap that in a QVariant.
+            // access a setter that takes QList<QVariant>.  We need a QVector<int> (ie what the setter expects) wrapped
+            // in a QVariant.
             //
             // To add to the challenge, despite QVariant having a huge number of constructors, none of them will accept
             // QVector<int>, so, instead, you have to use the static function QVariant::fromValue to create a QVariant
             // wrapper around QVector<int>.
             //
-            QVector<int> convertedOtherKeys;
-            for (auto ii : otherKeys) {
-               convertedOtherKeys.append(ii.toInt());
-            }
-            QVariant wrappedConvertedOtherKeys = QVariant::fromValue(convertedOtherKeys);
+            QVariant wrappedConvertedOtherKeys = QVariant::fromValue(currentMapping.value());
+            qDebug() <<
+               Q_FUNC_INFO << currentObject->metaObject()->className() << " #" << currentMapping.key() << ", " <<
+               GetJunctionTableDefinitionPropertyName(junctionTable) << "=" << currentMapping.value() << "(" <<
+               wrappedConvertedOtherKeys << ")";
             success = currentObject->setProperty(*GetJunctionTableDefinitionPropertyName(junctionTable),
                                                  wrappedConvertedOtherKeys);
          }
@@ -1311,6 +1334,16 @@ void ObjectStore::update(std::shared_ptr<QObject> object) {
    return;
 }
 
+void ObjectStore::update(QObject & object) {
+   // It's a coding error to call this function for something that's not already stored in the DB
+   int const primaryKey = this->pimpl->getPrimaryKey(object).toInt();
+   Q_ASSERT(primaryKey > 0);
+
+   // Since the object is already stored, we want a copy of the shared_ptr that we already have for it
+   auto sharedPointer = this->getById(primaryKey);
+   this->update(sharedPointer);
+   return;
+}
 
 std::shared_ptr<QObject> ObjectStore::insertOrUpdate(std::shared_ptr<QObject> object) {
    QVariant const primaryKey = this->pimpl->getPrimaryKey(*object);
@@ -1323,8 +1356,17 @@ std::shared_ptr<QObject> ObjectStore::insertOrUpdate(std::shared_ptr<QObject> ob
 }
 
 int ObjectStore::insertOrUpdate(QObject & object) {
-   std::shared_ptr<QObject> sharedPointer{&object};
-   this->insertOrUpdate(sharedPointer);
+   QVariant const primaryKey = this->pimpl->getPrimaryKey(object);
+   if (primaryKey.toInt() > 0) {
+      // If the object is already stored, then we want a copy of the shared_ptr that we already have for it
+      auto sharedPointer = this->getById(primaryKey.toInt());
+      this->update(sharedPointer);
+   } else {
+      // If the object is NOT already stored, then we are assuming (because calling this member function rather than
+      // the one with the shared_ptr parameter) that no-one has yet made a shared_ptr for it and we are safe to do so.
+      std::shared_ptr<QObject> sharedPointer{&object};
+      this->insert(sharedPointer);
+   }
    return this->pimpl->getPrimaryKey(object).toInt();
 }
 
