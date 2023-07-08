@@ -1072,8 +1072,8 @@ public:
          return bnTable;
       }
 
+      int ii = size - 1; // Only print the most recent previous brewday for reference.
       // for(int ii = 0; ii < size; ++ii) {
-         int ii = size - 1; // Only print the most recent previous brewday for reference.
          BrewNote* note = brewNotes[ii];
 
          bnTable += QString("<h2>%1 %2</h2>").arg(tr("Brew Date")).arg(note->brewDate_short());
