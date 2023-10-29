@@ -1072,94 +1072,96 @@ public:
          return bnTable;
       }
 
-      int ii = size - 1; // Only print the most recent previous brewday for reference.
-      // for(int ii = 0; ii < size; ++ii) {
-         BrewNote* note = brewNotes[ii];
+      // Only print the most recent previous brewday for reference.
+      BrewNote* note = brewNotes[0];
+      for(int ii = 1; ii < size; ++ii) {
+         if (brewNotes[ii]->brewDate() > note->brewDate()) {
+            note = brewNotes[ii];
+         }
+      }
 
-         bnTable += QString("<h2>%1 %2</h2>").arg(tr("Brew Date")).arg(note->brewDate_short());
+      bnTable += QString("<h2>%1 %2</h2>").arg(tr("Brew Date")).arg(note->brewDate_short());
 
-         // PREBOIL, done two-by-two
-         bnTable += "<table id=\"brewnote\">";
-         bnTable += QString("<caption>%1</caption>").arg(tr("Preboil"));
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(tr("SG"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->sg(), Measurement::Units::sp_grav},
-                                                  PersistentSettings::Sections::page_preboil,
-                                                  PropertyNames::BrewNote::sg,
-                                                  3))
-                  .arg(tr("Volume into BK"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->volumeIntoBK_l(), Measurement::Units::liters},
-                                                  PersistentSettings::Sections::page_preboil,
-                                                  PropertyNames::BrewNote::volumeIntoBK_l));
+      // PREBOIL, done two-by-two
+      bnTable += "<table id=\"brewnote\">";
+      bnTable += QString("<caption>%1</caption>").arg(tr("Preboil"));
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
+               .arg(tr("SG"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->sg(), Measurement::Units::sp_grav},
+                                                PersistentSettings::Sections::page_preboil,
+                                                PropertyNames::BrewNote::sg,
+                                                3))
+               .arg(tr("Volume into BK"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->volumeIntoBK_l(), Measurement::Units::liters},
+                                                PersistentSettings::Sections::page_preboil,
+                                                PropertyNames::BrewNote::volumeIntoBK_l));
 
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(tr("Strike Temp"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->strikeTemp_c(), Measurement::Units::celsius},
-                                                  PersistentSettings::Sections::page_preboil,
-                                                  PropertyNames::BrewNote::strikeTemp_c))
-                  .arg(tr("Final Temp"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->mashFinTemp_c(), Measurement::Units::celsius},
-                                                  PersistentSettings::Sections::page_preboil,
-                                                  PropertyNames::BrewNote::mashFinTemp_c));
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
+               .arg(tr("Strike Temp"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->strikeTemp_c(), Measurement::Units::celsius},
+                                                PersistentSettings::Sections::page_preboil,
+                                                PropertyNames::BrewNote::strikeTemp_c))
+               .arg(tr("Final Temp"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->mashFinTemp_c(), Measurement::Units::celsius},
+                                                PersistentSettings::Sections::page_preboil,
+                                                PropertyNames::BrewNote::mashFinTemp_c));
 
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2%</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(tr("Eff into BK"))
-                  .arg(Measurement::displayQuantity(note->calculateEffIntoBK_pct(), 2))
-                  .arg(tr("Projected OG"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->calculateOg(), Measurement::Units::sp_grav},
-                                                  PersistentSettings::Sections::page_preboil,
-                                                  PropertyNames::BrewNote::projOg,
-                                                  3));
-         bnTable += "</table>";
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2%</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
+               .arg(tr("Eff into BK"))
+               .arg(Measurement::displayQuantity(note->calculateEffIntoBK_pct(), 2))
+               .arg(tr("Projected OG"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->calculateOg(), Measurement::Units::sp_grav},
+                                                PersistentSettings::Sections::page_preboil,
+                                                PropertyNames::BrewNote::projOg,
+                                                3));
+      bnTable += "</table>";
 
-         // POSTBOIL
-         bnTable += "<table id=\"brewnote\">";
-         bnTable += QString("<caption>%1</caption>").arg(tr("Postboil"));
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(tr("OG"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->og(), Measurement::Units::sp_grav},
-                                                  PersistentSettings::Sections::page_postboil,
-                                                  PropertyNames::BrewNote::og,
-                                                  3))
-                  .arg(tr("Postboil Volume"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->postBoilVolume_l(), Measurement::Units::liters},
-                                                  PersistentSettings::Sections::page_postboil,
-                                                  PropertyNames::BrewNote::postBoilVolume_l));
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(tr("Volume Into Fermenter"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->volumeIntoFerm_l(), Measurement::Units::liters},
-                                                  PersistentSettings::Sections::page_postboil,
-                                                  PropertyNames::BrewNote::volumeIntoFerm_l))
-                  .arg(tr("Brewhouse Eff"))
-                  .arg(Measurement::displayQuantity(note->calculateBrewHouseEff_pct(), 2));
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2%</td></tr>")
-                  .arg(tr("Projected ABV"))
-                  .arg(Measurement::displayQuantity(note->calculateABV_pct(), 2));
-         bnTable += "</table>";
+      // POSTBOIL
+      bnTable += "<table id=\"brewnote\">";
+      bnTable += QString("<caption>%1</caption>").arg(tr("Postboil"));
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
+               .arg(tr("OG"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->og(), Measurement::Units::sp_grav},
+                                                PersistentSettings::Sections::page_postboil,
+                                                PropertyNames::BrewNote::og,
+                                                3))
+               .arg(tr("Postboil Volume"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->postBoilVolume_l(), Measurement::Units::liters},
+                                                PersistentSettings::Sections::page_postboil,
+                                                PropertyNames::BrewNote::postBoilVolume_l));
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
+               .arg(tr("Volume Into Fermenter"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->volumeIntoFerm_l(), Measurement::Units::liters},
+                                                PersistentSettings::Sections::page_postboil,
+                                                PropertyNames::BrewNote::volumeIntoFerm_l))
+               .arg(tr("Brewhouse Eff"))
+               .arg(Measurement::displayQuantity(note->calculateBrewHouseEff_pct(), 2));
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2%</td></tr>")
+               .arg(tr("Projected ABV"))
+               .arg(Measurement::displayQuantity(note->calculateABV_pct(), 2));
+      bnTable += "</table>";
 
 
-         // POSTFERMENT
-         bnTable += "<table id=\"brewnote\">";
-         bnTable += QString("<caption>%1</caption>").arg(tr("Postferment"));
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(tr("FG"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->fg(), Measurement::Units::sp_grav},
-                                                  PersistentSettings::Sections::page_postferment,
-                                                  PropertyNames::BrewNote::fg,
-                                                  3))
-                  .arg(tr("Volume"))
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->finalVolume_l(), Measurement::Units::liters},
-                                                  PersistentSettings::Sections::page_postferment,
-                                                  PropertyNames::BrewNote::finalVolume_l));
+      // POSTFERMENT
+      bnTable += "<table id=\"brewnote\">";
+      bnTable += QString("<caption>%1</caption>").arg(tr("Postferment"));
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
+               .arg(tr("FG"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->fg(), Measurement::Units::sp_grav},
+                                                PersistentSettings::Sections::page_postferment,
+                                                PropertyNames::BrewNote::fg,
+                                                3))
+               .arg(tr("Volume"))
+               .arg(Measurement::displayAmount(Measurement::Amount{note->finalVolume_l(), Measurement::Units::liters},
+                                                PersistentSettings::Sections::page_postferment,
+                                                PropertyNames::BrewNote::finalVolume_l));
 
-         bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(tr("Date"))
-                  .arg(note->fermentDate_short())
-                  .arg(tr("ABV"))
-                  .arg(Measurement::displayQuantity(note->calculateActualABV_pct(), 2));
-         bnTable += "</table>";
-
-      // }
+      bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
+               .arg(tr("Date"))
+               .arg(note->fermentDate_short())
+               .arg(tr("ABV"))
+               .arg(Measurement::displayQuantity(note->calculateActualABV_pct(), 2));
+      bnTable += "</table>";
 
       return bnTable;
    }
